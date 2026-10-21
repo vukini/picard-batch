@@ -44,5 +44,18 @@ def saved(file):
 register_file_post_save_processor(saved)
 sys.argv = ['picard', '-s', '-P', '-M', '--no-crash-dialog', '-c', str(config_path),
             '-e', 'FROM_FILE', str(commands_path)]
-from picard.tagger import main
+from picard.tagger import Tagger, main
+from picard_batch.diagnostics import collect
+
+# WRITE_LOGS runs after pending operations settle and before REMOVE_ALL. Capture
+# unresolved/candidate state while track associations still exist.
+_original_write_logs = Tagger.handle_command_write_logs
+
+def write_logs_with_reasons(self, argstring):
+    from picard_batch.storage import write_json
+    read_only = 'SAVE_MATCHED' not in commands_path.read_text().splitlines()
+    write_json(config_path.parent / 'details.json', collect(self, config_path.parent, read_only))
+    return _original_write_logs(self, argstring)
+
+Tagger.handle_command_write_logs = write_logs_with_reasons
 main('/usr/share/locale', False)

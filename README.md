@@ -64,13 +64,42 @@ Video and M4B audiobooks are excluded. Symlinks outside the library are skipped.
 | `pause` | Finish the current batch, then stop starting new ones |
 | `resume` | Clear pause without starting work |
 | `exceptions [--output NEW_FILE]` | Print/export unresolved paths as JSON; never overwrites an export |
+| `diagnose [N]` | Refresh reasons for unresolved batches using a read-only scan; no tags saved |
 | `retry [N]` | Retry unresolved files in up to N completed batches, retaining confirmed saves |
 | `schedule [options]` | Run the overnight watcher in the foreground |
 
-`run` and `retry` require `resume` after a pause. They accept
+`run`, `retry` and `diagnose` require `resume` after a pause. They accept
 `--worker-timeout SECONDS` (default 1800 per lookup/scan pass). A batch may contain
 multiple passes, including two retry rounds with 60-second waits. `retry` is
 explicit: normal runs and the watcher skip completed batches with exceptions.
+
+## Understand exceptions
+
+```sh
+picard-batch exceptions --details
+picard-batch diagnose 1       # read-only scan of one unresolved batch
+picard-batch exceptions --details --output new-details.json
+```
+
+The default `exceptions` output remains the original batch-to-path-list JSON.
+`--details` adds a reason, message, recording/release identifiers when available,
+and conflicting paths if multiple files matched the same album track. Reasons
+include `multiple_files_same_track`, `no_match`, `file_error` and `not_saved`.
+Network errors during a pass are noted separately, without assuming that every
+unresolved file failed because of the network.
+
+Picard's automatic `SAVE_MATCHED` skips a track with multiple attached files.
+Those files can show successful Scan matches in the GUI yet remain unsaved by
+the runner. They require manual review; this tool does not force-save them or
+assume that different filenames prove different recordings.
+
+`diagnose` can refresh older reports that lack reasons. It performs lookup via
+fingerprint scanning and records the observed candidates/conflicts without any
+save command. It preserves saved/unresolved counts, completion times and nightly
+quota events. A unique candidate is labeled `candidate_found`; it is not counted
+as saved. Use `retry` explicitly to attempt saving after reviewing the diagnosis.
+Per-pass observations are in `details.json`; the latest detailed export is
+`work/exception-details.json`. These files contain private library paths too.
 
 ## Live progress and logs
 

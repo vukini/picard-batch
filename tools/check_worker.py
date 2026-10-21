@@ -16,8 +16,8 @@ with tempfile.TemporaryDirectory(prefix='picard-batch-worker-') as folder:
                     'sine=frequency=440:duration=1', str(audio)], check=True, timeout=30)
     commands = root / 'commands.txt'
     finished = root / 'finished.log'
-    commands.write_text('LOAD ' + shlex.quote(str(audio)) + '\nCLUSTER\nREMOVE_ALL\nWRITE_LOGS '
-                        + shlex.quote(str(finished)) + '\nQUIT force\n')
+    commands.write_text('LOAD ' + shlex.quote(str(audio)) + '\nCLUSTER\nWRITE_LOGS '
+                        + shlex.quote(str(finished)) + '\nREMOVE_ALL\nQUIT force\n')
     environment = os.environ.copy()
     environment['QT_QPA_PLATFORM'] = 'offscreen'
     with (root / 'process.log').open('w') as log:
@@ -27,4 +27,8 @@ with tempfile.TemporaryDirectory(prefix='picard-batch-worker-') as folder:
     if result.returncode or not finished.exists():
         print((root / 'process.log').read_text(), file=sys.stderr)
         raise SystemExit('Worker smoke test failed.')
+    import json
+    details = json.loads((root / 'details.json').read_text())
+    assert str(audio) in details, 'Worker did not capture reasons before cleanup.'
+    assert not (root / 'saves.jsonl').exists(), 'Read-only worker unexpectedly saved audio.'
     print('Worker started, loaded generated FLAC, executed commands and exited successfully.')

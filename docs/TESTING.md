@@ -16,7 +16,8 @@ can compare and resume. No test requires changing your current personal setup.
 6. Run `exceptions`, and `exceptions --output /path/to/new-report.json`. An empty
    object means every processed input had a confirmed save, not that all matches
    are necessarily the correct edition.
-7. Run `retry 1` if exceptions exist. Confirm previous successful saves remain
+7. Run `exceptions --details` to inspect reasons. For an older report, use the
+   read-only `diagnose 1` first; it does not save tags. Run `retry 1` if exceptions exist. Confirm previous successful saves remain
    accounted for and unresolved counts reflect the retry.
 8. In one terminal run `run 5`; in another run `pause`. The current batch finishes,
    then no new batch starts. Run `resume`, then `run 1` to continue.

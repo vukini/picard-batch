@@ -12,7 +12,9 @@ Picard 3/Qt6 is deliberately rejected rather than assumed compatible.
 The unit suite covers initialization, state isolation, album grouping, symlink
 boundaries, command quoting, pause/resume, locks, deadlines, interrupted atomic
 writes, failed workers, saved-journal recovery, exception retries, save accounting
-and persistent overnight quotas. It makes no network requests and does not touch
+and persistent overnight quotas. Exception tests cover collisions, candidate-only
+read-only scans, legacy reports, diagnostic capture before cleanup, and preservation
+of saved counts/timestamps/quotas during diagnosis. It makes no network requests and does not touch
 real libraries.
 
 The worker smoke check starts a real isolated Picard process, loads generated FLAC,

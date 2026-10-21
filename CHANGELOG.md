@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a3
+
+- Explain unresolved files with per-file reasons and matched recording/release details.
+- Report multiple files attached to the same album track without weakening automatic-save safeguards.
+- Add `exceptions --details` while preserving the existing path-only JSON output.
+- Add read-only `diagnose [N]` to refresh exception reasons without saving tags or changing quotas.
+- Capture worker diagnostics before cleanup removes track associations.
+
 ## 0.1.0a2
 
 - Stream timestamped batch, pass, save and retry-wait progress to stderr.

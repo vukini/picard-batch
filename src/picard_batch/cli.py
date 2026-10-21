@@ -15,6 +15,7 @@ from . import __version__, doctor, runner
 from .inventory import FORMATS, inventory
 from .storage import lock, locked, read, write_json
 from .progress import emit
+from .diagnostics import detailed_report
 
 
 def default_state():
@@ -53,9 +54,11 @@ def library_lock(state):
     return Path.home() / '.local/state/picard-batch/locks' / (identity + '.lock')
 
 
-def run(state, count, deadline=None, retry=False, timeout=1800):
+def run(state, count, deadline=None, retry=False, timeout=1800, diagnostic=False):
     doctor.require()
     with lock(library_lock(state)):
+        if diagnostic:
+            return runner.diagnose(state / 'library.json', state / 'work', count, timeout)
         runner.process(state / 'library.json', state / 'work', count,
                        deadline=deadline, retry=retry, timeout=timeout)
 
@@ -115,7 +118,9 @@ def positive(value):
     return value
 
 
-def exceptions(state):
+def exceptions(state, details=False):
+    if details:
+        return detailed_report(report(state))
     return {n: b['unresolved'] for n, b in report(state).items() if b['unresolved']}
 
 
@@ -130,7 +135,7 @@ def _main(argv=None):
     init.add_argument('--batch-size', type=positive, default=100,
                       help='Target files per batch; album groups may exceed this.')
     init.add_argument('--dry-run', action='store_true', help='Print inventory JSON without creating state.')
-    for action, help_text in [('run', 'Tag unprocessed batches.'), ('retry', 'Retry only unresolved files in processed batches.')]:
+    for action, help_text in [('run', 'Tag unprocessed batches.'), ('retry', 'Retry only unresolved files in processed batches.'), ('diagnose', 'Explain unresolved matches without saving tags.')]:
         start = sub.add_parser(action, help=help_text)
         start.add_argument('batches', type=positive, nargs='?', default=5)
         start.add_argument('--worker-timeout', type=positive, default=1800,
@@ -142,6 +147,7 @@ def _main(argv=None):
     sub.add_parser('pause', help='Stop after the current batch.')
     sub.add_parser('resume', help='Clear pause without starting a runner.')
     export = sub.add_parser('exceptions', help='Show or export unresolved files.')
+    export.add_argument('--details', action='store_true', help='Include reasons and candidate/conflict details.')
     export.add_argument('--output', type=Path, help='Write JSON to a new file; refuses to overwrite.')
     sched = sub.add_parser('schedule', help='Run overnight watcher in foreground.')
     sched.add_argument('--start-hour', type=int, choices=range(24), default=0)
@@ -164,10 +170,13 @@ def _main(argv=None):
             return 0
         if not (state / 'library.json').exists():
             raise ValueError('State not initialized. Run init LIBRARY first.')
-        if args.action in ('run', 'retry'):
+        if args.action in ('run', 'retry', 'diagnose'):
             if (state / 'work/STOP').exists():
                 raise ValueError('Paused. Run resume before starting another batch.')
-            run(state, args.batches, retry=args.action == 'retry', timeout=args.worker_timeout)
+            if args.action == 'diagnose':
+                run(state, args.batches, timeout=args.worker_timeout, diagnostic=True)
+            else:
+                run(state, args.batches, retry=args.action == 'retry', timeout=args.worker_timeout)
         elif args.action == 'schedule':
             if args.start_hour == args.end_hour:
                 raise ValueError('Start and end hours must differ.')
@@ -182,7 +191,7 @@ def _main(argv=None):
                 stop.unlink(missing_ok=True)
                 print('Pause cleared.')
         elif args.action == 'exceptions':
-            text = json.dumps(exceptions(state), indent=2) + '\n'
+            text = json.dumps(exceptions(state, args.details), indent=2) + '\n'
             if args.output:
                 with args.output.expanduser().open('x') as stream:
                     stream.write(text)
