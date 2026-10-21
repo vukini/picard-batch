@@ -66,6 +66,8 @@ Video and M4B audiobooks are excluded. Symlinks outside the library are skipped.
 | `exceptions [--output NEW_FILE]` | Print/export unresolved paths as JSON; never overwrites an export |
 | `diagnose [N]` | Refresh reasons for unresolved batches using a read-only scan; no tags saved |
 | `retry [N]` | Retry unresolved files in up to N completed batches, retaining confirmed saves |
+| `night-on [options]` | Persistently enable nightly work and start its background watcher |
+| `night-off` | Persistently disable nightly work; finish the current batch |
 | `schedule [options]` | Run the overnight watcher in the foreground |
 
 `run`, `retry` and `diagnose` require `resume` after a pause. They accept
@@ -132,7 +134,20 @@ the end time and lets a running batch finish. The quota counts completed batches
 including manual and retry runs within the window, and survives restarts.
 This is a batch quota; album-aware groups mean it is not an exact track limit.
 
-Keep the machine awake and online. No login rule, daemon or service is installed.
+Keep the machine awake and online. The `schedule` command runs in the foreground. Alternatively, use `night-on` to
+start a background watcher with persistent settings and `night-off` to disable it:
+
+```sh
+picard-batch night-on --start-hour 0 --end-hour 6 --quota 25
+picard-batch night-off
+```
+
+Settings are in `nightly.json` and background progress in `nightly.log`, both under
+the selected state directory. `night-on` clears a pause and preserves any unspecified
+settings. `night-off` requests a pause too; `resume` permits manual runs without
+reenabling nightly work. `schedule --configured` uses those persistent settings,
+which is useful for desktop-login startup. No login rule or system service is installed
+by the package itself.
 Use another terminal to `pause`. For a graceful stop, wait until `status` shows
 an idle runner before ending the watcher. Ctrl-C or SIGTERM during a worker
 terminates that worker; confirmed saves are recovered on the next run.
@@ -140,7 +155,10 @@ terminates that worker; confirmed saves are recovered on the next run.
 ## State, recovery and multiple libraries
 
 State defaults to `$XDG_STATE_HOME/picard-batch`, falling back to
-`~/.local/state/picard-batch`. It is independent of installed code. For another
+`~/.local/state/picard-batch`. An optional user configuration at
+`$XDG_CONFIG_HOME/picard-batch/config.json` (normally
+`~/.config/picard-batch/config.json`) can set `{"state_dir": "/absolute/path"}`.
+An explicit `--state-dir` always overrides this user default. It is independent of installed code. For another
 library, choose another state directory on **every command**:
 
 ```sh
@@ -165,6 +183,29 @@ root, even when they use different state directories. It does not coordinate
 with Picard's GUI, other tagging programs, another user, overlapping parent/child
 roots or the original personal scripts. Use one tool on a library at a time.
 Workers use separate Picard settings, runtime pipes and caches.
+
+## Import the original music-tagger installation
+
+For users of the original scripts, `import-legacy` preserves their frozen batches
+and progress rather than rescanning a library already in progress:
+
+```sh
+picard-batch --state-dir /path/to/new-state import-legacy /path/to/music-tagger
+picard-batch --state-dir /path/to/new-state status
+```
+
+First disable the original nightly setting, let its current batch finish and stop
+its idle watcher. Import refuses an active watcher/runner or an enabled legacy
+nightly setting. The destination must not exist. Completed automatic batches and
+exceptions are retained; manually confirmed batches are explicitly labeled as such.
+Interrupted successful-save journals are retained too. Historical batch boundaries
+are kept, including any album splits from the old runner. Old installation files
+and audio stay in place; retain them for rollback and historical logs.
+
+The importer preserves a pause flag but does not enable/start the new watcher.
+Check counts, then use `night-on` when ready. Never enable both installations on
+the same library. After the new runner saves tags, returning to an old progress
+snapshot can repeat those later batches; reconcile progress before rolling back.
 
 ## Matching and formats
 

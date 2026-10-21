@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a4
+
+- Import original music-tagger progress, manual confirmations, exceptions and interrupted-save journals without rescanning audio.
+- Add persistent `night-on`/`night-off` controls and configured background watchers.
+- Preserve nightly quotas and distinguish imported manual confirmations from confirmed automatic writes.
+
 ## 0.1.0a3
 
 - Explain unresolved files with per-file reasons and matched recording/release details.

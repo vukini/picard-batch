@@ -14,7 +14,10 @@ boundaries, command quoting, pause/resume, locks, deadlines, interrupted atomic
 writes, failed workers, saved-journal recovery, exception retries, save accounting
 and persistent overnight quotas. Exception tests cover collisions, candidate-only
 read-only scans, legacy reports, diagnostic capture before cleanup, and preservation
-of saved counts/timestamps/quotas during diagnosis. It makes no network requests and does not touch
+of saved counts/timestamps/quotas during diagnosis. Migration tests cover manual
+confirmation, automatic exceptions, interrupted journals, rejected active sources,
+invalid partitions and atomic import failure. Nightly controls are tested for
+persistence, single-watcher startup and disabled scheduling. It makes no network requests and does not touch
 real libraries.
 
 The worker smoke check starts a real isolated Picard process, loads generated FLAC,

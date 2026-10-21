@@ -11,7 +11,8 @@ import signal
 import threading
 import time
 
-from . import __version__, doctor, runner
+from . import __version__, doctor, runner, nightly
+from .migration import import_legacy
 from .inventory import FORMATS, inventory
 from .storage import lock, locked, read, write_json
 from .progress import emit
@@ -19,6 +20,13 @@ from .diagnostics import detailed_report
 
 
 def default_state():
+    config_root = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config'))
+    config = config_root / 'picard-batch/config.json'
+    if config.exists():
+        value = read(config).get('state_dir')
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f'{config}: state_dir must be a nonempty path string.')
+        return Path(value).expanduser()
     return Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'picard-batch'
 
 
@@ -90,11 +98,17 @@ def remaining_quota(value, begin, finish, quota):
     return max(0, quota-used)
 
 
-def schedule(state, start, end, quota, timeout=1800):
+def schedule(state, start, end, quota, timeout=1800, configured=False):
     doctor.require()
     with lock(state / 'scheduler.lock'):
+        if configured:
+            control = nightly.settings(state)
+            start, end, quota, timeout = (control[k] for k in ('start', 'end', 'quota', 'timeout'))
         emit(f'Watcher active: {start:02}:00–{end:02}:00, quota {quota}.')
         while True:
+            control = nightly.settings(state)
+            if configured:
+                start, end, quota, timeout = (control[k] for k in ('start', 'end', 'quota', 'timeout'))
             now = datetime.now()
             begin, finish = window(now, start, end)
             value = progress(state)
@@ -102,7 +116,7 @@ def schedule(state, start, end, quota, timeout=1800):
                 emit('All batches processed; review exceptions separately.')
                 return
             remaining = remaining_quota(value, begin, finish, quota)
-            if begin <= now < finish and remaining and not (state / 'work/STOP').exists():
+            if control['enabled'] and begin <= now < finish and remaining and not (state / 'work/STOP').exists():
                 try:
                     run(state, remaining, finish.timestamp(), timeout=timeout)
                 except (ValueError, RuntimeError, OSError) as error:
@@ -127,8 +141,12 @@ def exceptions(state, details=False):
 def _main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', action='version', version=__version__)
-    parser.add_argument('--state-dir', type=Path, default=default_state(),
-                        help='Runtime directory (default: XDG_STATE_HOME/picard-batch).')
+    try:
+        state_default = default_state()
+    except (ValueError, OSError, AttributeError) as error:
+        parser.error(str(error))
+    parser.add_argument('--state-dir', type=Path, default=state_default,
+                        help='Runtime directory (default: configured state_dir or XDG_STATE_HOME/picard-batch).')
     sub = parser.add_subparsers(dest='action', required=True)
     init = sub.add_parser('init', help='Freeze an explicit library list; never writes audio tags.')
     init.add_argument('library', type=Path)
@@ -140,6 +158,15 @@ def _main(argv=None):
         start.add_argument('batches', type=positive, nargs='?', default=5)
         start.add_argument('--worker-timeout', type=positive, default=1800,
                            help='Maximum seconds per lookup/scan worker (default: 1800).')
+    legacy = sub.add_parser('import-legacy', help='Import stopped original music-tagger state without rescanning audio.')
+    legacy.add_argument('installation', type=Path)
+    for action in ('night-on', 'night-off'):
+        control = sub.add_parser(action, help='Enable/background nightly work.' if action == 'night-on' else 'Disable nightly work; finish the current batch.')
+        if action == 'night-on':
+            control.add_argument('--start-hour', type=int, choices=range(24))
+            control.add_argument('--end-hour', type=int, choices=range(24))
+            control.add_argument('--quota', type=positive)
+            control.add_argument('--worker-timeout', type=positive)
     sub.add_parser('doctor', help='Check backend imports, command support and fpcalc.')
     sub.add_parser('formats', help='List recognized audio extensions.')
     sub.add_parser('status')
@@ -150,6 +177,7 @@ def _main(argv=None):
     export.add_argument('--details', action='store_true', help='Include reasons and candidate/conflict details.')
     export.add_argument('--output', type=Path, help='Write JSON to a new file; refuses to overwrite.')
     sched = sub.add_parser('schedule', help='Run overnight watcher in foreground.')
+    sched.add_argument('--configured', action='store_true', help='Use persistent settings written by night-on.')
     sched.add_argument('--start-hour', type=int, choices=range(24), default=0)
     sched.add_argument('--end-hour', type=int, choices=range(24), default=6)
     sched.add_argument('--quota', type=positive, default=25)
@@ -165,12 +193,24 @@ def _main(argv=None):
             for extension, name in sorted(FORMATS.items()):
                 print(f'{extension:7} {name}')
             return 0
+        if args.action == 'import-legacy':
+            value = import_legacy(args.installation, state)
+            print(f'Imported {len(value["batches"])} completed batches without changing audio. State: {state}')
+            return 0
         if args.action == 'init':
             initialize(state, args.library, args.batch_size, args.dry_run)
             return 0
         if not (state / 'library.json').exists():
             raise ValueError('State not initialized. Run init LIBRARY first.')
-        if args.action in ('run', 'retry', 'diagnose'):
+        if args.action == 'night-on':
+            doctor.require()
+            value = nightly.enable(state, start=args.start_hour, end=args.end_hour,
+                                   quota=args.quota, timeout=args.worker_timeout)
+            print(f'Nightly enabled: {value["start"]:02}:00–{value["end"]:02}:00; quota {value["quota"]} batches. Log: {state / "nightly.log"}')
+        elif args.action == 'night-off':
+            nightly.disable(state)
+            print('Nightly disabled; any current batch will finish.')
+        elif args.action in ('run', 'retry', 'diagnose'):
             if (state / 'work/STOP').exists():
                 raise ValueError('Paused. Run resume before starting another batch.')
             if args.action == 'diagnose':
@@ -180,7 +220,7 @@ def _main(argv=None):
         elif args.action == 'schedule':
             if args.start_hour == args.end_hour:
                 raise ValueError('Start and end hours must differ.')
-            schedule(state, args.start_hour, args.end_hour, args.quota, args.worker_timeout)
+            schedule(state, args.start_hour, args.end_hour, args.quota, args.worker_timeout, args.configured)
         elif args.action in ('pause', 'resume'):
             (state / 'work').mkdir(exist_ok=True)
             stop = state / 'work/STOP'
@@ -205,9 +245,14 @@ def _main(argv=None):
             batches = report(state)
             total = len(read(state / 'library.json')['batches'])
             print(f'{len(batches)}/{total} batches processed')
-            print(f'{sum(len(b["saved"]) for b in batches.values())} saved; '
+            label = 'saved or manually confirmed' if any(b.get('confirmation') == 'legacy_manual' for b in batches.values()) else 'saved'
+            print(f'{sum(len(b["saved"]) for b in batches.values())} {label}; '
                   f'{sum(len(b["unresolved"]) for b in batches.values())} exceptions')
             print('Runner:', 'active' if locked(library_lock(state)) else 'idle')
+            if (state / 'nightly.json').exists():
+                control = nightly.settings(state)
+                print('Nightly:', 'enabled' if control['enabled'] else 'disabled',
+                      f'({control["start"]:02}:00–{control["end"]:02}:00; quota {control["quota"]})')
             print('Watcher:', 'active' if locked(state / 'scheduler.lock') else 'stopped')
             print('Paused:', (state / 'work/STOP').exists())
             print('State:', state)
