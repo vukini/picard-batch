@@ -1,0 +1,9 @@
+Picard Batch is distributed under GNU GPL version 2 or (at your option) later.
+See LICENSE for the full license text.
+
+It is an independent companion to MusicBrainz Picard, not an official MetaBrainz
+product. It imports the separately installed Picard backend; it does not vendor
+Picard or Qt. Picard is GPL-2.0-or-later. PyQt5 is available under GPLv3 or a
+commercial license; combined distribution must respect the applicable licenses.
+Mutagen is GPL-2.0-or-later. ffmpeg and Chromaprint are separate system tools with
+their own licensing terms. No audio recordings are distributed by this project.

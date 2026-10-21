@@ -1,0 +1,4 @@
+include LICENSE NOTICE README.md ROADMAP.md CHANGELOG.md check.sh
+recursive-include tests *.py
+recursive-include tools *.py
+recursive-include docs *.md

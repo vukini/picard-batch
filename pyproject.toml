@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "picard-batch"
+version = "0.1.0a1"
+description = "Resumable batch processing for MusicBrainz Picard"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
+dependencies = ["mutagen>=1.45"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Repository = "https://github.com/vukini/picard-batch"
+Issues = "https://github.com/vukini/picard-batch/issues"
+
+[project.scripts]
+picard-batch = "picard_batch.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
