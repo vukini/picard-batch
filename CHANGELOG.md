@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0a2
+
+- Stream timestamped batch, pass, save and retry-wait progress to stderr.
+- Forward Picard diagnostics live while retaining the full worker log.
+- Emit a 15-second heartbeat during quiet lookup/scan operations.
+- Keep stdout clean for JSON and command results; retain worker cleanup on interruption.
+
 ## 0.1.0a1
 
 Initial Linux testing alpha:

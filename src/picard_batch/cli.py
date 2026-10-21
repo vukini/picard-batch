@@ -14,6 +14,7 @@ import time
 from . import __version__, doctor, runner
 from .inventory import FORMATS, inventory
 from .storage import lock, locked, read, write_json
+from .progress import emit
 
 
 def default_state():
@@ -89,20 +90,20 @@ def remaining_quota(value, begin, finish, quota):
 def schedule(state, start, end, quota, timeout=1800):
     doctor.require()
     with lock(state / 'scheduler.lock'):
-        print(f'Watcher active: {start:02}:00–{end:02}:00, quota {quota}.', flush=True)
+        emit(f'Watcher active: {start:02}:00–{end:02}:00, quota {quota}.')
         while True:
             now = datetime.now()
             begin, finish = window(now, start, end)
             value = progress(state)
             if len(value['batches']) >= len(read(state / 'library.json')['batches']):
-                print('All batches processed; review exceptions separately.')
+                emit('All batches processed; review exceptions separately.')
                 return
             remaining = remaining_quota(value, begin, finish, quota)
             if begin <= now < finish and remaining and not (state / 'work/STOP').exists():
                 try:
                     run(state, remaining, finish.timestamp(), timeout=timeout)
                 except (ValueError, RuntimeError, OSError) as error:
-                    print(str(error), file=sys.stderr, flush=True)
+                    emit(str(error))
                 time.sleep(300)
             time.sleep(30)
 

@@ -72,6 +72,25 @@ Video and M4B audiobooks are excluded. Symlinks outside the library are skipped.
 multiple passes, including two retry rounds with 60-second waits. `retry` is
 explicit: normal runs and the watcher skip completed batches with exceptions.
 
+## Live progress and logs
+
+`run`, `retry` and `schedule` write timestamped progress to **stderr**, flushed
+immediately: batch/pass starts, confirmed saves during a pass, retry delays and
+completion. Picard diagnostics (including HTTP errors) are forwarded live. During
+a quiet worker, a heartbeat appears every 15 seconds with elapsed time and confirmed
+saves. Full logs are still retained under the state's `work/batch-*/process.log`.
+
+`status` counts completed batches; in-progress confirmed saves appear in the live
+progress before they are committed to the batch report. A 60-second retry wait is
+announced before it begins. An existing running command keeps the logging behavior
+of the version it started with; updates apply to subsequent invocations.
+
+Stdout remains available for JSON/output commands. To keep a separate live log:
+
+```sh
+picard-batch run 1 2>run-progress.log
+```
+
 ## Overnight runs
 
 ```sh

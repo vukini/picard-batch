@@ -11,6 +11,7 @@ import sys
 import time
 
 from .storage import lock, read, write_json
+from .progress import WorkerProgress, emit
 
 HERE = Path(__file__).resolve().parent
 
@@ -53,9 +54,12 @@ def run_pass(paths, folder, scan=False, timeout=1800):
     environment['QT_QPA_PLATFORM'] = 'offscreen'
     with (folder / 'process.log').open('w') as log:
         process = subprocess.Popen(
-            [sys.executable, str(HERE / 'worker.py'), str(folder / 'Picard.ini'),
+            [sys.executable, '-u', str(HERE / 'worker.py'), str(folder / 'Picard.ini'),
              str(command_path), str(folder / 'saved.jsonl')],
             env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        monitor = WorkerProgress(folder, len(paths), journal_paths)
+        emit(f'Worker log: {folder / "process.log"}')
+        monitor.start()
         try:
             process.wait(timeout=timeout)
         except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
@@ -74,6 +78,8 @@ def run_pass(paths, folder, scan=False, timeout=1800):
             if isinstance(error, KeyboardInterrupt):
                 raise
             raise RuntimeError(f'Worker timed out; saved journals retained. See {folder / "process.log"}.') from None
+        finally:
+            monitor.close()
     if process.returncode or not finished.exists():
         raise RuntimeError(f'Picard did not finish; see {folder / "process.log"}. Restart resumes this batch.')
     return journal_paths(folder / 'saved.jsonl') & set(paths)
@@ -92,9 +98,12 @@ def process(state_path, work, count, deadline=None, retry=False, timeout=1800,
         completed = 0
         for number, original in enumerate(state['batches'], 1):
             if deadline is not None and time.time() >= deadline:
-                print('Time window ended; no new batch started.', flush=True)
+                emit('Time window ended; no new batch started.')
                 break
-            if (work / 'STOP').exists() or completed >= count:
+            if (work / 'STOP').exists():
+                emit('Pause requested; no new batch started.')
+                break
+            if completed >= count:
                 break
             previous = report['batches'].get(str(number))
             if retry:
@@ -107,23 +116,31 @@ def process(state_path, work, count, deadline=None, retry=False, timeout=1800,
                 paths = original
             if any(not Path(p).is_file() for p in paths):
                 raise RuntimeError(f'Missing files in batch {number}; stopped without advancing.')
-            print(f'Batch {number}/{len(state["batches"])}: {len(paths)} files', flush=True)
+            emit(f'Batch {number}/{len(state["batches"])}: {len(paths)} files')
             saved = set(previous['saved']) if previous else set()
             # Recover actual successful writes even if a worker failed before its final report.
             for journal in work.glob(f'batch-{number:04}-*/saved.jsonl'):
                 saved |= journal_paths(journal) & set(original)
+            if saved:
+                emit(f'Recovered/retained {len(saved)} confirmed saves for this batch.')
             stamp = time.time_ns()
             for attempt in range(retry_rounds + 1):
                 if set(paths) <= saved:
                     break
                 if attempt:
+                    emit(f'Waiting {retry_delay}s before retry {attempt}/{retry_rounds}: '
+                         f'{len(set(paths)-saved)} files unresolved.')
                     time.sleep(retry_delay)
                 for scan in (False, True):
                     remaining = [p for p in paths if p not in saved]
                     if not remaining:
                         break
+                    phase = 'Fingerprint scan' if scan else 'Album lookup'
+                    emit(f'{phase}: {len(remaining)} files; attempt {attempt+1}/{retry_rounds+1}.')
                     folder = work / f'batch-{number:04}-{stamp}-{attempt}-{int(scan)}'
                     saved |= run_pass(remaining, folder, scan, timeout=timeout) & set(paths)
+                    emit(f'{phase} finished: {len(saved)}/{len(original)} batch files confirmed saved; '
+                         f'{len(set(paths)-saved)} still unresolved.')
             exceptions = [p for p in original if p not in saved]
             now = time.time()
             report['batches'][str(number)] = {'saved': sorted(saved), 'unresolved': exceptions,
@@ -133,9 +150,9 @@ def process(state_path, work, count, deadline=None, retry=False, timeout=1800,
             # Convenience export: progress.json is the authoritative state.
             write_json(work / 'exceptions.json',
                        {n: b['unresolved'] for n, b in report['batches'].items() if b['unresolved']})
-            print(f'  saved {len(saved)}; unresolved {len(exceptions)}', flush=True)
+            emit(f'Batch {number} complete: {len(saved)} saved; {len(exceptions)} unresolved. Progress recorded.')
             completed += 1
-        print(f'Run finished: {completed} batches. Reports: {work}', flush=True)
+        emit(f'Run finished: {completed} batches. Reports: {work}')
 
 
 def main(argv=None):
